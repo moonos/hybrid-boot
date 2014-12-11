@@ -1,0 +1,27 @@
+#!/bin/sh
+
+#set -e
+
+Debug ()
+{
+	for _PARAMETER in ${HYBRID_BOOT_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			hybrid-boot.debug|debug)
+				HYBRID_BOOT_DEBUG="true"
+				;;
+		esac
+	done
+
+	case "${HYBRID_BOOT_DEBUG}" in
+		true)
+			;;
+
+		*)
+			return 0
+			;;
+	esac
+
+	# Write the trace output
+	set -x
+}

@@ -1,0 +1,23 @@
+Source: hybrid-boot
+Section: misc
+Priority: optional
+Maintainer: Chanrithy Thim <12rithy@gmail.com>
+Build-Depends: debhelper (>= 9)
+Standards-Version: 3.9.5
+
+Package: hybrid-boot
+Architecture: all
+Depends: ${misc:Depends}, busybox | busybox-initramfs,
+ initramfs-tools,
+ udev,
+Recommends:
+ rsync,
+ uuid-runtime,
+Suggests:
+ curlftpfs,
+ cryptsetup,
+ httpfs2,
+ unionfs-fuse,
+ wget,
+Description: Hybrid System Boot Components
+ moonOS hybrid system boot components

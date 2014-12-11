@@ -1,0 +1,56 @@
+#!/bin/sh
+
+#set -e
+
+Read_only ()
+{
+	for _PARAMETER in ${HYBRID_BOOT_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			hybrid-boot.read-only=*|read-only=*)
+				HYBRID_READ_ONLY="true"
+				HYBRID_READ_ONLY_DEVICES="${_PARAMETER#*read-only=}"
+				;;
+
+			hybrid-boot.read-only|read-only)
+				HYBRID_READ_ONLY="true"
+				;;
+		esac
+	done
+
+	case "${HYBRID_READ_ONLY}" in
+		true)
+			;;
+
+		*)
+			return 0
+			;;
+	esac
+
+	# Marking some block devices as read-only to ensure that nothing
+	# gets written as linux still writes to 'only' read-only mounted filesystems.
+	HYBRID_READ_ONLY_DEVICES="${HYBRID_READ_ONLY_DEVICES:-/dev/sd* /dev/vd*}"
+
+	for _DEVICE in $(echo ${HYBRID_READ_ONLY_DEVICES} | sed -e 's|,| |g')
+	do
+		if [ ! -b "${_DEVICE}" ]
+		then
+			continue
+		fi
+
+		echo -n "hyrbid-boot: Setting ${_DEVICE} read-only..." > /dev/console
+
+		blockdev --setro ${_DEVICE}
+		_RETURN="${?}"
+
+		case "${_RETURN}" in
+			0)
+				echo " done, use 'blockdev --setrw ${_DEVICE}' to set read-write." > /dev/console
+				;;
+
+			*)
+				echo " failed." > /dev/console
+				;;
+		esac
+	done
+}

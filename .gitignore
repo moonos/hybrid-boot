@@ -1,0 +1,4 @@
+debian/hybrid-boot
+debian/files
+debian/hybrid-boot.debhelper.log
+debian/hybrid-boot.substvars

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+#set -e
+
+. /bin/hybrid-boot
+
+DRACUT_FIXME ()
+{
+	# dracut entry point for hybrid-boot is FIXME(); function
+	Hybrid
+}

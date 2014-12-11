@@ -1,0 +1,142 @@
+#!/bin/sh
+
+#set -e
+
+Cmdline_old ()
+{
+	for _PARAMETER in ${HYBRID_BOOT_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			skipconfig)
+				NOFSTAB="true"
+				NONETWORKING="true"
+
+				export NOFSTAB NONETWORKING
+				;;
+
+			BOOTIF=*)
+				BOOTIF="${_PARAMETER#BOOTIF=}"
+				;;
+
+			dhcp)
+				# Force dhcp even while netbooting
+				# Use for debugging in case somebody works on fixing dhclient
+				DHCP="true";
+				export DHCP
+				;;
+
+			nodhcp)
+				DHCP=""
+				export DHCP
+				;;
+
+			ethdevice=*)
+				DEVICE="${_PARAMETER#ethdevice=}"
+				ETHDEVICE="${DEVICE}"
+				export DEVICE ETHDEVICE
+				;;
+
+			ethdevice-timeout=*)
+				ETHDEV_TIMEOUT="${_PARAMETER#ethdevice-timeout=}"
+				export ETHDEV_TIMEOUT
+				;;
+
+			ignore_uuid)
+				IGNORE_UUID="true"
+				export IGNORE_UUID
+				;;
+
+			ip=*)
+			    STATICIP="${_PARAMETER#ip=}"
+
+				if [ -z "${STATICIP}" ]
+				then
+					STATICIP="frommedia"
+				fi
+
+				export STATICIP
+				;;
+			
+			hybrid-media-encryption=*|encryption=*)
+				HYBRID_MEDIA_ENCRYPTION="${_PARAMETER#*=}"
+				export HYBRID_MEDIA_ENCRYPTION
+				;;
+
+			hybrid-media-offset=*)
+				HYBRID_MEDIA_OFFSET="${_PARAMETER#live-media-offset=}"
+				export HYBRID_MEDIA_OFFSET
+				;;
+
+			hybrid-media-path=*)
+				HYBRID_MEDIA_PATH="${_PARAMETER#live-media-path=}"
+				export HYBRID_MEDIA_PATH
+				;;
+
+			hybrid-media-timeout=*)
+				HYBRID_MEDIA_TIMEOUT="${_PARAMETER#live-media-timeout=}"
+				export HYBRID_MEDIA_TIMEOUT
+				;;
+
+			nofstab)
+				NOFSTAB="true"
+				export NOFSTAB
+				;;
+
+			nonetworking)
+				NONETWORKING="true"
+				export NONETWORKING
+				;;
+
+			ramdisk-size=*)
+				ramdisk_size="${_PARAMETER#ramdisk-size=}"
+				;;
+
+			root-encryption=*)
+				PERSISTENCE_ENCRYPTION="${_PARAMETER#*=}"
+				export PERSISTENCE_ENCRYPTION
+				;;
+
+			root=*)
+				ROOT="${_PARAMETER#root=}"
+				export ROOT
+				;;
+		esac
+	done
+
+	# Image name
+	MODULE="BaseSystem"
+	export MODULE
+
+	# Set union filesystem type
+	UNIONTYPE="aufs"
+	export UNIONTYPE
+	
+	# Persistence setting
+	PERSISTENCE="true"
+	export PERSISTENCE
+	PERSISTENCE_METHOD="overlay"
+	export PERSISTENCE_METHOD
+	PERSISTENCE_STORAGE="filesystem,file"
+	export PERSISTENCE_STORAGE
+
+	if [ -z "${PERSISTENCE_ENCRYPTION}" ]
+	then
+		PERSISTENCE_ENCRYPTION="none"
+		export PERSISTENCE_ENCRYPTION
+	elif is_in_comma_sep_list luks ${PERSISTENCE_ENCRYPTION}
+	then
+		if ! modprobe dm-crypt
+		then
+			log_warning_msg "Unable to load module dm-crypt"
+			PERSISTENCE_ENCRYPTION=$(echo ${PERSISTENCE_ENCRYPTION} | sed -e 's/\<luks,\|,\?luks$//g')
+			export PERSISTENCE_ENCRYPTION
+		fi
+
+		if [ ! -x /lib/cryptsetup/askpass ] || [ ! -x /sbin/cryptsetup ]
+		then
+			log_warning_msg "cryptsetup is unavailable"
+			PERSISTENCE_ENCRYPTION=$(echo ${PERSISTENCE_ENCRYPTION} | sed -e 's/\<luks,\|,\?luks$//g')
+			export PERSISTENCE_ENCRYPTION
+		fi
+	fi
+}
