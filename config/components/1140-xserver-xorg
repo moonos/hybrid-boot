@@ -1,0 +1,176 @@
+#!/bin/sh
+
+## hybrid-boot-config - System Configuration Components
+## 
+## Based on live-config(7) - Copyright (C) 2006-2014 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+Cmdline ()
+{
+	for _PARAMETER in ${LIVE_CONFIG_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			hybrid-boot-config.xorg-driver=*|xorg-driver=*)
+				HYBRID_XORG_DRIVER="${_PARAMETER#*xorg-driver=}"
+				;;
+
+			hybrid-boot-config.xorg-resolution=*|xorg-resolution=*)
+				HYBRID_XORG_RESOLUTION="${_PARAMETER#*xorg-resolution=}"
+				;;
+		esac
+	done
+}
+
+Init ()
+{
+	# Checking if package is installed
+	if [ ! -e /var/lib/dpkg/info/xserver-xorg.list ] || \
+	   [ -e /var/lib/hybrid/config/xserver-xorg ]
+	then
+		exit 0
+	fi
+
+	echo -n " xserver-xorg"
+}
+
+Config ()
+{
+	if [ -z "${HYBRID_XORG_DRIVER}" ] && [ -e /usr/bin/lspci ]
+	then
+		# pci-id of the first graphic card
+		_DEVICE="$(lspci -mn | awk '/0300/ { print $3$4 }' | sed -e 's|"||g' | tr [a-z] [A-Z] | head -n1)"
+
+		if [ -n "${_DEVICE}" ]
+		then
+			if ls /usr/share/hybrid/config/xserver-xorg/*.ids > /dev/null 2>&1
+			then
+				# xorg-driver manual overrides
+				for _OVERRIDE_IDS in /usr/share/hybrid/config/xserver-xorg/*.ids
+				do
+					if [ -e "${_OVERRIDE_IDS}" ]
+					then
+						if grep -qs "${_DEVICE}" "${_OVERRIDE_IDS}"
+						then
+							HYBRID_XORG_DRIVER="$(basename ${_OVERRIDE_IDS} .ids)"
+
+							break
+						fi
+					fi
+				done
+			fi
+
+			if [ -z "${HYBRID_XORG_DRIVER}" ]
+			then
+				# xorg-driver automatic override for virtualbox
+				if [ -e /var/lib/dpkg/info/virtualbox-guest-x11.list ] && echo "${_DEVICE}" | grep -qs '^80EEBEEF'
+				then
+					HYBRID_XORG_DRIVER="vboxvideo"
+				fi
+
+				# xorg-driver automatic override for fglrx
+				if echo "${_DEVICE}" | grep -qs '^1002'
+				then
+					if grep -qs "${_DEVICE}" /usr/share/fglrx/fglrx.ids
+					then
+						HYBRID_XORG_DRIVER="fglrx"
+					fi
+				fi
+
+				# xorg-driver automatic override for nvidia
+				if echo "${_DEVICE}" | grep -qs -E '^(10DE|12D2)'
+				then
+					for _NVIDIA_IDS in /usr/lib/nvidia/current/nvidia.ids $(ls /usr/lib/nvidia/legacy-*/nvidia.ids | sort -V -r)
+					do
+						if [ -e "${_NVIDIA_IDS}" ]
+						then
+							if grep -qs "${_DEVICE}" ${_NVIDIA_IDS}
+							then
+								_NVIDIA_VERSION="$(basename $(dirname ${_NVIDIA_IDS}))"
+								_NVIDIA_MODULE="$(echo nvidia-${_NVIDIA_VERSION} | sed -e 's|-current$||')"
+
+								break
+							fi
+						fi
+					done
+
+					if [ -n "${_NVIDIA_VERSION}" ]
+					then
+						HYBRID_XORG_DRIVER="nvidia"
+					fi
+				fi
+			fi
+		fi
+	fi
+
+	if [ -n "${HYBRID_XORG_DRIVER}" ]
+	then
+		mkdir -p /etc/X11/xorg.conf.d
+
+		if [ -e "/usr/share/hybrid/config/xserver-xorg/${HYBRID_XORG_DRIVER}.conf" ]
+		then
+			# xorg-driver manual override
+			cp "/usr/share/hybrid/config/xserver-xorg/${HYBRID_XORG_DRIVER}.conf" /etc/X11/xorg.conf.d/zz-hybrid-config_xserver-xorg.conf
+		else
+
+			# xorg-driver automatic override
+
+cat > /etc/X11/xorg.conf.d/zz-hybrid-config_xserver-xorg.conf << EOF
+Section "Device"
+	Identifier	"Default screen"
+	Driver		"${HYBRID_XORG_DRIVER}"
+EndSection
+EOF
+
+		fi
+
+		case "${HYBRID_XORG_DRIVER}" in
+			fglrx)
+				update-alternatives --quiet --set glx /usr/lib/fglrx
+
+				modprobe --ignore-install fglrx || true
+				;;
+
+			nvidia)
+				update-alternatives --quiet --set glx /usr/lib/nvidia
+				update-alternatives --quiet --set nvidia /usr/lib/nvidia/${_NVIDIA_VERSION:-current}
+
+				modprobe --ignore-install ${_NVIDIA_MODULE:-nvidia} || true
+				;;
+
+			*)
+				update-alternatives --quiet --set glx /usr/lib/mesa-diverted
+				;;
+		esac
+	fi
+
+	if [ -n "${HYBRID_XORG_RESOLUTION}" ]
+	then
+		echo "xrandr -s ${HYBRID_XORG_RESOLUTION} || /bin/true" >> /etc/X11/Xsession.d/21xvidemode
+	else
+		rm -f /etc/X11/Xsession.d/21xvidemode
+	fi
+
+	if [ -e /tmp/hybrid-boot-config.cfg ]
+	then
+		debconf-set-selections < /tmp/hybrid-boot-config.cfg
+		rm -f /tmp/hybrid-boot-config.cfg
+
+		dpkg-reconfigure -f noninteractive -p critical \
+			xserver-xorg 2>&1 \
+			| grep -v "overwriting possibly-customised configuration" \
+			| grep -v "file; backup in /etc/X11/xorg.conf" || true
+
+		# Creating state file
+		touch /var/lib/hybrid/config/xserver-xorg
+	fi
+}
+
+Cmdline
+Init
+Config

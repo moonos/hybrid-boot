@@ -6,15 +6,6 @@ set -e
 
 [ "${QUIET}" ] || echo -n "hybrid-boot:"
 
-# Reading configuration file
-for _FILE in /lib/hybrid/mount/media/hybrid/boot.conf /lib/hybrid/mount/media/hybrid/boot/*
-do
-	if [ -e "${_FILE}" ]
-	then
-		. "${_FILE}"
-	fi
-done
-
 # Checking hybrid-boot
 if [ ! -e /bin/hybrid-boot ]
 then

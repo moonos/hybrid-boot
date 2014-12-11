@@ -1,0 +1,138 @@
+#!/bin/sh
+
+## hybrid-boot-config - System Configuration Components
+## 
+## Based on live-config(7) - Copyright (C) 2006-2014 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program is free software: you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation, either version 3 of the License, or
+## (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+## GNU General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with this program. If not, see <http://www.gnu.org/licenses/>.
+##
+## The complete text of the GNU General Public License
+## can be found in /usr/share/common-licenses/GPL-3 file.
+
+
+set -e
+
+DEBIAN_FRONTEND="noninteractive"
+DEBIAN_PRIORITY="critical"
+DEBCONF_NOWARNINGS="yes"
+export DEBIAN_FRONTEND DEBIAN_PRIORITY DEBCONF_NOWARNINGS
+
+_IP_SEPARATOR="-"
+_PROC_OPTIONS="onodev,noexec,nosuid"
+export _IP_SEPARATOR _PROC_OPTIONS
+
+_COMPONENTS="$(ls /lib/hybrid/config/*)"
+
+Cmdline ()
+{
+	for _PARAMETER in ${HYBRID_CONFIG_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			# Special options
+			live-config.debug|debug)
+				HYBRID_CONFIG_DEBUG="true"
+				;;
+		esac
+	done
+}
+
+Trap ()
+{
+	_RETURN="${?}"
+
+	case "${_RETURN}" in
+		0)
+
+			;;
+
+		*)
+			echo ":ERROR"
+			;;
+	esac
+
+	return ${_RETURN}
+}
+
+Setup_network ()
+{
+	if [ -z "${_NETWORK}" ] && [ -e /etc/init.d/hybrid-boot-config ]
+	then
+		/etc/init.d/mountkernfs.sh start > /dev/null 2>&1
+		/etc/init.d/mountdevsubfs.sh start > /dev/null 2>&1
+		/etc/init.d/networking start > /dev/null 2>&1
+
+		# Now force adapter up if specified with ethdevice= on cmdline
+		if [ -n "${ETHDEVICE}" ]
+		then
+			ifup --force "${ETHDEVICE}"
+		fi
+
+		_NETWORK="true"
+		export _NETWORK
+	fi
+}
+
+Main ()
+{
+	if [ ! -e /proc/version ]
+	then
+		mount -n -t proc -o${_PROC_OPTIONS} -odefaults proc /proc
+	fi
+
+	HYBRID_CONFIG_CMDLINE="${HYBRID_CONFIG_CMDLINE:-$(cat /proc/cmdline)}"
+	export HYBRID_CONFIG_CMDLINE
+
+	if ! echo ${HYBRID_CONFIG_CMDLINE} | grep -qs "boot=hybrid"
+	then
+		exit 0
+	fi
+
+	# Setting up log redirection
+	rm -f /var/log/hybrid/config.log
+	rm -f /tmp/hybrid-boot-config.pipe
+
+	mkdir -p /var/log/hybrid
+	mkfifo /tmp/hybrid-boot-config.pipe
+	tee < /tmp/hybrid-boot-config.pipe /var/log/hybrid/config.log &
+	exec > /tmp/hybrid-boot-config.pipe 2>&1
+
+	echo -n "hybrid-boot-config:" > /tmp/hybrid-boot-config.pipe 2>&1
+	trap 'Trap' EXIT HUP INT QUIT TERM
+
+	# Processing command line
+	Cmdline
+
+	case "${HYBRID_CONFIG_DEBUG}" in
+		true)
+			set -x
+			;;
+	esac
+
+	# Configuring system
+	_COMPONENTS="$(echo ${_COMPONENTS} | sed -e 's| |\n|g' | sort -u)"
+
+	for _COMPONENT in ${_COMPONENTS}
+	do
+		[ "${HYBRID_CONFIG_DEBUG}" = "true" ] && echo "[$(date +'%F %T')] hybrid-boot-config: ${_COMPONENT}" > /tmp/hybrid-boot-config.pipe
+
+		${_COMPONENT} > /tmp/hybrid-boot-config.pipe 2>&1
+	done
+
+	echo "." > /tmp/hybrid-boot-config.pipe
+
+	# Cleaning up log redirection
+	rm -f /tmp/hybrid-boot-config.pipe
+}
+
+Main ${@}

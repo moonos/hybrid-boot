@@ -1,0 +1,115 @@
+#!/bin/sh
+
+## hybrid-boot-config - System Configuration Components
+## 
+## Based on live-config(7) - Copyright (C) 2006-2014 Daniel Baumann <mail@daniel-baumann.ch>
+##
+## This program comes with ABSOLUTELY NO WARRANTY; for details see COPYING.
+## This is free software, and you are welcome to redistribute it
+## under certain conditions; see COPYING for details.
+
+
+set -e
+
+Cmdline ()
+{
+	for _PARAMETER in ${HYBRID_CONFIG_CMDLINE}
+	do
+		case "${_PARAMETER}" in
+			hybrid-config.wlan-driver=*|wlan-driver=*)
+				HYBRID_WLAN_DRIVER="${_PARAMETER#*wlan-driver=}"
+				;;
+		esac
+	done
+}
+
+Init ()
+{
+	# Checking if package is installed
+	if [ ! -e /var/lib/dpkg/info/broadcom-sta-common.list ] || \
+	   [ -e /var/lib/hybrid/config/broadcom-sta-common ]
+	then
+		exit 0
+	fi
+
+	echo -n " broadcom-sta-common"
+}
+
+Config ()
+{
+	if [ -z "${HYBRID_WLAN_DRIVER}" ] && [ -e /usr/bin/lspci ]
+	then
+		# pci-id of pci class "network controller" subclass "network controller"
+		_DEVICE="$(lspci -mn | awk '$2 == "\"0280\"" { gsub ("\"",""); print $3$4 }' | uniq)"
+
+		if [ -n "${_DEVICE}" ]
+		then
+			if ls /usr/share/hybrid/config/broadcom-sta/*.ids > /dev/null 2>&1
+			then
+				# wlan-driver manual overrides
+				for _OVERRIDE_IDS in /usr/share/hybrid/config/broadcom-sta/*.ids
+				do
+					if [ -e "${_OVERRIDE_IDS}" ]
+					then
+						if grep -qs "${_DEVICE}" "${_OVERRIDE_IDS}"
+						then
+							HYBRID_WLAN_DRIVER="$(basename ${_OVERRIDE_IDS} .ids)"
+
+							break
+						fi
+					fi
+				done
+			fi
+
+			if [ -z "${HYBRID_WLAN_DRIVER}" ]
+			then
+				# wlan-driver automatic override for broadcom-sta
+				if echo "${_DEVICE}" | grep -qs '^14e4'
+				then
+					if grep -qs "${_DEVICE}" /usr/share/broadcom-sta/broadcom-sta.ids
+					then
+						HYBRID_WLAN_DRIVER="broadcom-sta"
+					fi
+				fi
+			fi
+		fi
+	fi
+
+	if [ -n "${HYBRID_WLAN_DRIVER}" ]
+	then
+		mkdir -p /etc/modprobe.d
+
+		if [ -e "/usr/share/hybrid/config/broadcom-sta/${HYBRID_WLAN_DRIVER}.conf" ]
+		then
+			# wlan-driver manual override
+			cp "/usr/share/hybrid/config/broadcom-sta/${HYBRID_WLAN_DRIVER}.conf" /etc/modprobe.d/broadcom-sta-dkms.conf
+		else
+			# wlan-driver automatic override
+			if [ -e /etc/modprobe.d/broadcom-sta-dkms.conf ]
+			then
+				case "${HYBRID_WLAN_DRIVER}" in
+					broadcom-sta)
+						sed -i -e 's|^ *blacklist|# blacklist|' /etc/modprobe.d/broadcom-sta-dkms.conf
+
+						if ! grep -qs "^blacklist wl" /etc/modprobe.d/broadcom-sta-dkms.conf
+						then
+							echo "blacklist wl" >> /etc/modprobe.d/broadcom-sta-dkms.conf
+						fi
+						;;
+
+					*)
+						sed -i -e 's|^# *blacklist|blacklist|g' /etc/modprobe.d/broadcom-sta-dkms.conf
+						sed -i -e 's|^blacklist wl|#blacklist wl|g' /etc/modprobe.d/broadcom-sta-dkms.conf
+						;;
+				esac
+			fi
+		fi
+
+		# Creating state file
+		touch /var/lib/hybrid/config/broadcom-sta
+	fi
+}
+
+Cmdline
+Init
+Config
