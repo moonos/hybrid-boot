@@ -1,3 +1,15 @@
+hybrid-boot (0.2.1) unstable; urgency=low
+
+  [ Daniel Baumann ]
+  * Dropping usage of /etc/fstab.d since util-linux removed it, thanks to
+    Evgeni Golov <evgeni+git@golov.de> for reporting it.
+
+  [ Jan Blunck ]
+  * Fix spelling of unknown
+  * Suppress annoying but harmless warning about unknown module
+
+ -- Chanrithy Thim <12rithy@gmail.com>  Thu, 11 Dec 2014 10:41:08 +0700
+
 hybrid-boot (0.2) unsable; urgency=low
 
   * Added system configuration during first boot
